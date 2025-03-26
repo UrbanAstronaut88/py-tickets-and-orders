@@ -1,6 +1,5 @@
 from django.contrib.auth.models import AbstractUser
 from django.db import models
-from django.core.exceptions import ValidationError
 
 
 class User(AbstractUser):
@@ -60,42 +59,44 @@ class MovieSession(models.Model):
 
 class Order(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-
-    class Meta:
-        ordering = ["-created_at"]
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="orders")
 
     def __str__(self) -> str:
         return f"<Order: {self.created_at}>"
 
+    class Meta:
+        ordering = ["-created_at"]
+
 
 class Ticket(models.Model):
     movie_session = models.ForeignKey(
-        to=MovieSession, on_delete=models.CASCADE, related_name="tickets"
+        MovieSession, on_delete=models.CASCADE, related_name="tickets"
     )
-    order = models.ForeignKey(to=Order, on_delete=models.CASCADE, related_name="tickets")
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="tickets")
     row = models.IntegerField()
     seat = models.IntegerField()
 
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                fields=["row", "seat", "movie_session"], name="unique_ticket"
-            )
-        ]
-
-    def __str__(self) -> str:
-        return f"<Ticket: {self.movie_session.movie.title} {self.movie_session.show_time} (row: {self.row}, seat: {self.seat})>"
-
     def clean(self):
-        cinema_hall = self.movie_session.cinema_hall
-
-        if not (1 <= self.row <= cinema_hall.rows):
-            raise ValidationError({"row": f"Row must be between 1 and {cinema_hall.rows}"})
-
-        if not (1 <= self.seat <= cinema_hall.seats_in_row):
-            raise ValidationError({"seat": f"Seat must be between 1 and {cinema_hall.seats_in_row}"})
+        """Проверяем, что место не выходит за границы зала."""
+        if self.row > self.movie_session.cinema_hall.rows:
+            raise ValueError(
+                f"Row number must be in available range: (1, {self.movie_session.cinema_hall.rows})"
+            )
+        if self.seat > self.movie_session.cinema_hall.seats_in_row:
+            raise ValueError(
+                f"Seat number must be in available range: (1, {self.movie_session.cinema_hall.seats_in_row})"
+            )
 
     def save(self, *args, **kwargs):
         self.full_clean()
         super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"<Ticket: {self.movie_session} (row: {self.row}, seat: {self.seat})>"
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["movie_session", "row", "seat"], name="unique_ticket"
+            )
+        ]
