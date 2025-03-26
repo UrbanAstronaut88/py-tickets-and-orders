@@ -1,4 +1,10 @@
+from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.core.exceptions import ValidationError
+
+
+class User(AbstractUser):
+    pass
 
 
 class Genre(models.Model):
@@ -17,7 +23,7 @@ class Actor(models.Model):
 
 
 class Movie(models.Model):
-    title = models.CharField(max_length=255)
+    title = models.CharField(max_length=255, db_index=True)
     description = models.TextField()
     actors = models.ManyToManyField(to=Actor, related_name="movies")
     genres = models.ManyToManyField(to=Genre, related_name="movies")
@@ -50,3 +56,46 @@ class MovieSession(models.Model):
 
     def __str__(self) -> str:
         return f"{self.movie.title} {str(self.show_time)}"
+
+
+class Order(models.Model):
+    created_at = models.DateTimeField(auto_now_add=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"<Order: {self.created_at}>"
+
+
+class Ticket(models.Model):
+    movie_session = models.ForeignKey(
+        to=MovieSession, on_delete=models.CASCADE, related_name="tickets"
+    )
+    order = models.ForeignKey(to=Order, on_delete=models.CASCADE, related_name="tickets")
+    row = models.IntegerField()
+    seat = models.IntegerField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["row", "seat", "movie_session"], name="unique_ticket"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"<Ticket: {self.movie_session.movie.title} {self.movie_session.show_time} (row: {self.row}, seat: {self.seat})>"
+
+    def clean(self):
+        cinema_hall = self.movie_session.cinema_hall
+
+        if not (1 <= self.row <= cinema_hall.rows):
+            raise ValidationError({"row": f"Row must be between 1 and {cinema_hall.rows}"})
+
+        if not (1 <= self.seat <= cinema_hall.seats_in_row):
+            raise ValidationError({"seat": f"Seat must be between 1 and {cinema_hall.seats_in_row}"})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
